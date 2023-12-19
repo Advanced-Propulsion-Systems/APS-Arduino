@@ -1,5 +1,7 @@
+#include <ArduinoJson.h>
 #include <SD.h>
 #include <HX711.h>
+
 
 const int SPI_CIPO = 50;
 const int SPI_COPI = 51;
@@ -24,21 +26,26 @@ class Sensor {
     }
 
     virtual void pollSensor(unsigned long currentMillis) {
-      if (currentMillis >= this->nextReading) {
+      if (currentMillis < this->nextReading) {
         this->nextReading = millis() + this->refresh_delay;
         return;
       }
-      
+
       auto data = this->readSensor();
       this->sendData(currentMillis, data);
     }
 
   protected:
     virtual float readSensor();
-    virtual void sendData(unsigned long milliseconds, float data) {
-      Serial.print(this->id);
-      Serial.print(milliseconds);
-      Serial.println(data);
+    virtual void sendData(unsigned long milliseconds, double data) {
+      StaticJsonDocument<200> doc;
+      doc["type"] = "data";
+      doc["id"] = this->id;
+      doc["time"] = milliseconds;
+      doc["value"] = data;
+      
+      serializeJson(doc, Serial3);
+      Serial3.print("\n");
     }
 };
 
@@ -57,31 +64,44 @@ class LoadCellSensor : public Sensor {
     }
 };
 
+const int relayCount = 4;
+const int relays[] = {27, 29, 31, 33};
+
 const int sensorCount = 1;
 Sensor* sensors[sensorCount];
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(9600);
+  Serial3.begin(9600);
 
+ 
 
+  sensors[0] = new LoadCellSensor(0, 100);
 
-  int start = millis();
-  //Serial.println(, 10);
-  //double test = scale.get_units();
-  int now = millis();
-  Serial.println(now - start);
-
-  sensors[0] = new LoadCellSensor(0,100);
+  for (int i = 0; i < relayCount; i++) {
+     pinMode(relays[i], OUTPUT);
+     digitalWrite(relays[i], HIGH);
+  }
 }
 
 
 
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  for (int i = 0; i < sensorCount; i++) {
-    sensors[0]->pollSensor(millis());
+  if(Serial3.available() > 0) {
+    StaticJsonDocument<200> doc;
+    deserializeJson(doc, Serial3);
+
+    int id = doc["id"];
+    bool state = doc["state"];
+    if (state == true) {
+      digitalWrite(relays[id], LOW);
+    } else {
+      digitalWrite(relays[id], HIGH);
+    }
   }
   
-  return;
+  // put your main code here, to run repeatedly:
+  for (int i = 0; i < sensorCount; i++) {
+    sensors[i]->pollSensor(millis());
+  }
 }
